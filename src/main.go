@@ -3,24 +3,27 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"net"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v2"
 )
 
 // TreeNode Implements the node of a tree
 type TreeNode struct {
-	Value string `json:"value"`
-	Left  *Tree  `json:"left"`
-	Right *Tree  `json:"right"`
+	Value string `json:"value" yaml:"value"`
+	Left  *Tree  `json:"left" yaml:"left"`
+	Right *Tree  `json:"right" yaml:"right"`
 }
 
 // Tree Represents a tree
 type Tree struct {
-	Node TreeNode `json:"node"`
+	Node TreeNode `json:"node" yaml:"node"`
 }
 
 func tokenize(expr string) []string {
@@ -104,42 +107,67 @@ func buildASTFromString(expr string) *Tree {
 	return root
 }
 
-func runServer() {
+func runServer(useYAML *bool) {
 	listen, err := net.Listen("tcp", ":10011")
 	if err != nil {
 		fmt.Printf("Server failed. Err: %v\n", err)
 	}
 
-	fmt.Println("Server started")
 	defer listen.Close()
 
 	for {
 		conn, _ := listen.Accept()
 		defer conn.Close()
 
-		// Read Expression
-		encodedExpr := json.NewDecoder(conn)
 		var exprAST Tree
-		encodedExpr.Decode(&exprAST)
+		if *useYAML {
+			buff := make([]byte, 4*1024) //4KB
+			n, _ := conn.Read(buff)
+			err = yaml.Unmarshal(buff[:n], &exprAST)
+		} else {
+			encodedExpr := json.NewDecoder(conn)
+			encodedExpr.Decode(&exprAST)
+		}
 
-		// Compute and enconde result to JSON format
+		// Compute expression - Result will be an AST with a single node
 		result := strconv.Itoa(computeExpression(&exprAST))
 		resultAST := Tree{TreeNode{Value: result}}
-		encodedResult, _ := json.Marshal(&resultAST)
+
+		// Encode result AST to the choosen format (JSON or YAML)
+		var encodedResult []byte
+		if *useYAML {
+			encodedResult, _ = yaml.Marshal(resultAST)
+		} else {
+			encodedResult, _ = json.Marshal(resultAST)
+		}
 
 		// Send result in JSON format
 		conn.Write([]byte(encodedResult))
 	}
 }
 
-func main() {
-	go runServer()
-	time.Sleep(1 * time.Second)
+func printInfo(useYAML *bool) {
+	fmt.Printf("\nRemote calculator with - ")
+	if *useYAML {
+		fmt.Printf("YAML\n\n")
+	} else {
+		fmt.Printf("JSON\n\n")
+	}
 
-	fmt.Printf("REMOTE CALCULATOR\n\n")
-	fmt.Printf("Insert <SPACE> between operands and operations.\n")
-	fmt.Printf("WRONG Expression: 10+4/2\n")
-	fmt.Printf("CORRECT Expression: 10 + 4 / 2\n\n")
+	fmt.Printf("WRONG Expression:   10+4/2 (Without spaces)\n")
+	fmt.Printf("CORRECT Expression: 10 + 4 / 2 (With spaces)\n\n")
+}
+
+func main() {
+	useYAML := flag.Bool("yaml", false, "Use YAML format")
+	flag.Parse()
+
+	fmt.Print("Starting server... ")
+	go runServer(useYAML)
+	time.Sleep(1 * time.Second)
+	fmt.Println("OK")
+
+	printInfo(useYAML)
 
 	for {
 		// Connect to the calculator server
@@ -156,21 +184,39 @@ func main() {
 		scanner.Scan()
 		expr := scanner.Text()
 
-		// Build AST from expression and encode to JSON
+		// Build Abstract Syntax Tree (AST) from expression
 		exprAST := buildASTFromString(expr)
-		encodedExpr, _ := json.Marshal(exprAST)
 
-		// Send expression in JSON format
+		// Encode AST to the choosen format (JSON or YAML)
+		var encodedExpr []byte
+		if *useYAML {
+			encodedExpr, err = yaml.Marshal(exprAST)
+			if err != nil {
+				fmt.Printf("YAML marshall error %v:\n", err)
+			}
+		} else {
+			encodedExpr, _ = json.Marshal(exprAST)
+			if err != nil {
+				fmt.Printf("JSON marshall error %v:\n", err)
+			}
+		}
+
+		// Send expression in JSON/YAML format
+		//fmt.Println(string([]byte(encodedExpr)))
 		conn.Write([]byte(encodedExpr))
 
-		// Read result in JSON format
-		encodedResult := json.NewDecoder(conn)
-
-		// Convert result to AST
+		// Read result in JSON/YAML format and decode to AST
 		var resultAST Tree
-		encodedResult.Decode(&resultAST)
+		if *useYAML {
+			buff := make([]byte, 4*1024) //4KB
+			n, _ := conn.Read(buff)
+			yaml.Unmarshal(buff[:n], &resultAST)
+		} else {
+			encodedResult := json.NewDecoder(conn)
+			encodedResult.Decode(&resultAST)
+		}
 
 		// Print result
-		fmt.Printf("Result: %s\n", resultAST.Node.Value)
+		fmt.Printf("Result: %s\n\n", resultAST.Node.Value)
 	}
 }
