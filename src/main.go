@@ -107,7 +107,7 @@ func buildASTFromString(expr string) *Tree {
 	return root
 }
 
-func runServer(useYAML *bool) {
+func runServer(useYAML *bool, isVerbose *bool) {
 	listen, err := net.Listen("tcp", ":10011")
 	if err != nil {
 		fmt.Printf("Server failed. Err: %v\n", err)
@@ -119,14 +119,19 @@ func runServer(useYAML *bool) {
 		conn, _ := listen.Accept()
 		defer conn.Close()
 
+		// Receive expression in JSON/YAML from client
+		buff := make([]byte, 4*1024) //4KB
+		n, _ := conn.Read(buff)
+		if *isVerbose {
+			fmt.Printf("Server received:\n%s\n\n", string(buff[:n]))
+		}
+
+		// Decode from JSON/YAML to AST
 		var exprAST Tree
 		if *useYAML {
-			buff := make([]byte, 4*1024) //4KB
-			n, _ := conn.Read(buff)
 			err = yaml.Unmarshal(buff[:n], &exprAST)
 		} else {
-			encodedExpr := json.NewDecoder(conn)
-			encodedExpr.Decode(&exprAST)
+			err = json.Unmarshal(buff[:n], &exprAST)
 		}
 
 		// Compute expression - Result will be an AST with a single node
@@ -142,6 +147,9 @@ func runServer(useYAML *bool) {
 		}
 
 		// Send result in JSON format
+		if *isVerbose {
+			fmt.Printf("Server sent:\n%s\n\n", string([]byte(encodedResult)))
+		}
 		conn.Write([]byte(encodedResult))
 	}
 }
@@ -159,11 +167,12 @@ func printInfo(useYAML *bool) {
 }
 
 func main() {
-	useYAML := flag.Bool("yaml", false, "Use YAML format")
+	useYAML := flag.Bool("yaml", false, "Use YAML instead JSON.")
+	isVerbose := flag.Bool("verbose", false, "Print JSON/YAML data exchanged by client and server.")
 	flag.Parse()
 
 	fmt.Print("Starting server... ")
-	go runServer(useYAML)
+	go runServer(useYAML, isVerbose)
 	time.Sleep(1 * time.Second)
 	fmt.Println("OK")
 
@@ -202,18 +211,24 @@ func main() {
 		}
 
 		// Send expression in JSON/YAML format
-		//fmt.Println(string([]byte(encodedExpr)))
+		if *isVerbose {
+			fmt.Printf("Client sending: \n%s\n\n", string([]byte(encodedExpr)))
+		}
 		conn.Write([]byte(encodedExpr))
 
-		// Read result in JSON/YAML format and decode to AST
+		// Read result in JSON/YAML format
+		buff := make([]byte, 4*1024) //4KB
+		n, _ := conn.Read(buff)
+		if *isVerbose {
+			fmt.Printf("Client received:\n%s\n\n", string(buff[:n]))
+		}
+
+		// Decode result to AST
 		var resultAST Tree
 		if *useYAML {
-			buff := make([]byte, 4*1024) //4KB
-			n, _ := conn.Read(buff)
 			yaml.Unmarshal(buff[:n], &resultAST)
 		} else {
-			encodedResult := json.NewDecoder(conn)
-			encodedResult.Decode(&resultAST)
+			json.Unmarshal(buff[:n], &resultAST)
 		}
 
 		// Print result
