@@ -179,14 +179,7 @@ func main() {
 	printInfo(useYAML)
 
 	for {
-		// Connect to the calculator server
-		conn, err := net.Dial("tcp", "127.0.0.1:10011")
-		if err != nil {
-			fmt.Printf("Did not connect: %v\n", err)
-		}
-
-		defer conn.Close()
-
+		var err error
 		// Read expression
 		fmt.Print("Expression: ")
 		scanner := bufio.NewScanner(os.Stdin)
@@ -209,6 +202,13 @@ func main() {
 				fmt.Printf("JSON marshall error %v:\n", err)
 			}
 		}
+
+		// Connect to the calculator server
+		conn, err := net.Dial("tcp", "127.0.0.1:10011")
+		if err != nil {
+			fmt.Printf("Did not connect: %v\n", err)
+		}
+		defer conn.Close()
 
 		// Send expression in JSON/YAML format
 		if *isVerbose {
