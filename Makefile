@@ -1,5 +1,11 @@
-run:
+run-json:
 	go run src/main.go
 
-protobuf:
-	protoc -I calculator/calculator --go_out=calculator/calculator/ calculator/calculator/calculator.proto 
+run-json-verbose:
+	go run src/main.go -verbose
+	
+run-yaml:
+	go run src/main.go -yaml
+
+run-yaml-verbose:
+	go run src/main.go -yaml -verbose
